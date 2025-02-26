@@ -1,0 +1,38 @@
+- name: Configure LAMP Stack
+  hosts: lamp_web
+  become: yes
+  tasks:
+
+    - name: Install PHP and Dependencies
+      package:
+        name:
+          - php
+          - php-mysqlnd
+        state: present
+
+    - name: Restart Apache Service
+      service:
+        name: apache2
+        state: restarted
+
+    - name: Ensure index.php Exists
+      copy:
+        src: /root/index.php
+        dest: /var/www/html/index.php
+
+- name: Configure MariaDB
+  hosts: mariadb_server
+  become: yes
+  tasks:
+
+    - name: Create Database and User
+      community.mysql.mysql_db:
+        name: lampdb
+        state: present
+
+    - name: Create Application User
+      community.mysql.mysql_user:
+        name: lampuser
+        password: lamppass
+        priv: "lampdb.*:ALL"
+        state: present

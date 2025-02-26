@@ -1,0 +1,93 @@
+- name: Full Docker + Ansible + LAMP Automation
+  hosts: localhost
+  become: yes
+  tasks:
+
+    - name: Install Docker and Dependencies
+      package:
+        name: 
+          - docker
+          - python3-pip
+        state: present
+
+    - name: Start Docker Service
+      service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Install Docker Python Module
+      pip:
+        name: docker
+
+    - name: Pull Required Docker Images
+      community.docker.docker_image:
+        name: "{{ item }}"
+        source: pull
+      loop:
+        - ubuntu:latest
+        - httpd:latest
+        - mariadb:latest
+
+    - name: Create MariaDB Database Container
+      community.docker.docker_container:
+        name: mariadb_server
+        image: mariadb:latest
+        state: started
+        restart_policy: always
+        env:
+          MYSQL_ROOT_PASSWORD: "rootpassword"
+          MYSQL_DATABASE: "lampdb"
+          MYSQL_USER: "lampuser"
+          MYSQL_PASSWORD: "lamppass"
+        ports:
+          - "3306:3306"
+
+    - name: Create LAMP Web Server Container
+      community.docker.docker_container:
+        name: lamp_web
+        image: httpd:latest
+        state: started
+        restart_policy: always
+        ports:
+          - "8080:80"
+
+    - name: Copy index.php to Web Server
+      copy:
+        src: files/index.php
+        dest: /var/www/html/index.php
+      delegate_to: lamp_web
+
+    - name: Create Ansible Controller Container
+      community.docker.docker_container:
+        name: ansible_controller
+        image: ubuntu:latest
+        state: started
+        interactive: yes
+        tty: yes
+        command: /bin/bash
+        volumes:
+          - "/var/run/docker.sock:/var/run/docker.sock"
+
+    - name: Install Python and Ansible Inside Controller
+      community.docker.docker_container_exec:
+        container: ansible_controller
+        command: apt update && apt install -y python3 python3-pip && pip3 install ansible
+
+    - name: Copy Ansible Playbook and Dynamic Inventory to Controller
+      copy:
+        src: "{{ item }}"
+        dest: /root/
+      loop:
+        - lamp_playbook.yml
+        - dynamic_inventory.sh
+
+    - name: Make Inventory Script Executable
+      community.docker.docker_container_exec:
+        container: ansible_controller
+        command: chmod +x /root/dynamic_inventory.sh
+
+    - name: Run Ansible Playbook Inside Controller
+      community.docker.docker_container_exec:
+        container: ansible_controller
+        command: ansible-playbook /root/lamp_playbook.yml -i /root/dynamic_inventory.sh
